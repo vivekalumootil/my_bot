@@ -17,9 +17,21 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(GSL REQUIRED)
+find_package(geometry_msgs)
+find_package(nav_msgs)
+find_package(tf2)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
+add_executable(listener src/subscriber_node.cpp)
+ament_target_dependencies(listener rclcpp std_msgs image_transport OpenCV cv_bridge sensor_msgs GSL geometry_msgs nav_msgs tf2)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -32,8 +44,13 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+install(TARGETS
+  listener
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(
-  DIRECTORY config description launch worlds
+  DIRECTORY config description launch worlds src
   DESTINATION share/${PROJECT_NAME}
 )
 
