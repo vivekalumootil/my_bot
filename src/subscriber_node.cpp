@@ -2,10 +2,10 @@
 #include <memory>
 #include <algorithm>
 #include <iostream>
-#include <gsl/gsl_statistics.h>
 #include <vector>
 #include <math.h>
 #include <stdio.h>
+#include <queue>
 
 #include "cv_bridge/cv_bridge.h"
 #include "rclcpp/rclcpp.hpp"
@@ -147,6 +147,27 @@ class MinimalSubscriber : public rclcpp::Node {
       
       return centers;
     }
+     
+     /*
+    void adjust_queue(vPT cntrs)
+    {
+      for (int i=0; i<cntrs.size(); i++) {
+        bool valid = true;
+        for (int j=0; j<path.size(); j++) {
+          if (dist_2d(current_x+cntrs[i].first, current_y+cntrs[i].second, path[j].first, path[j].second) <= 0.2) {
+            valid = false;
+          }
+        }
+        if (valid) {
+          cntrs.push_back(PT(current_x+cntrs[i].first, current_y+cntrs[i].second));
+        }
+      }    
+      if (dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.2) {
+        path.pop();
+      }
+      target_x = path.front().first; target_y = path.front().second;
+    }
+    */
     
     // CALLBACK FUNCTIONS
    
@@ -170,6 +191,7 @@ class MinimalSubscriber : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "Center is x: %f and y: %f, with radius %f", px, py, R);
         cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
       }
+      
       
       cv::imshow("PCL DISPLAY", drawing);
       cv::waitKey(1);
@@ -291,6 +313,7 @@ class MinimalSubscriber : public rclcpp::Node {
       cv::waitKey(1);
       
     }
+    
     void depth_callback(sensor_msgs::msg::Image::SharedPtr msg)
     { 
       cv_bridge::CvImagePtr cv_ptr;
@@ -303,6 +326,7 @@ class MinimalSubscriber : public rclcpp::Node {
       double tx = msg->pose.pose.position.x;
       double ty = msg->pose.pose.position.y;
       double tz = msg->pose.pose.position.z;
+      current_x = tx; current_y = ty;
       // RCLCPP_INFO(this->get_logger(), "%s at %.2f %.2f", msg->header.frame_id.c_str(), tx, ty);
       double dx = target_x-tx; double dy = target_y-ty; 
       double dw = sqrt(dx*dx+dy*dy);
@@ -331,10 +355,6 @@ class MinimalSubscriber : public rclcpp::Node {
         //RCLCPP_INFO(this->get_logger(), "Trajectory is %f", traj);
         if (abs(traj-yaw) > 0.5) {
           twist_msg.angular.z = abs(traj-yaw)/(10*(traj-yaw));
-          //RCLCPP_INFO(this->get_logger(), "Top is %f", abs(traj-yaw));
-          //RCLCPP_INFO(this->get_logger(), "Bottom is %f", traj-yaw);
-          //RCLCPP_INFO(this->get_logger(), "Dir is %f", twist_msg.angular.z);
-          // twist_msg.angular.z = 1;
         }
         else {
           twist_msg.angular.z = 0;
@@ -377,7 +397,9 @@ class MinimalSubscriber : public rclcpp::Node {
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr ctr_pub_;
     std::vector<int> straight_points;
-    int target_x; int target_y;
+    std::queue<PT> path;
+    double target_x; double target_y;
+    double current_x; double current_y;
 };
 
 int main(int argc, char *argv[])
