@@ -6,7 +6,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <queue>
+#include <set>
 
+/*
 #include "cv_bridge/cv_bridge.h"
 #include "rclcpp/rclcpp.hpp"
 #include <opencv2/opencv.hpp>
@@ -15,6 +17,7 @@
 #include <opencv2/core/hal/interface.h>
 #include <image_transport/image_transport.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+*/
 
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -30,6 +33,8 @@
 #define RAD2DEG 57.295779513
 #define PI 3.1415
 
+const double VX = 0.7; const double VY = 0.7;
+
 typedef std::vector<std::pair<double, double>> vPT;
 typedef std::vector<std::tuple<double, double, double>> cPT;
 typedef std::pair<double, double> PT;
@@ -40,7 +45,7 @@ using std::placeholders::_1;
 class MinimalSubscriber : public rclcpp::Node {
   public:
     MinimalSubscriber()
-    : Node("controls"), target_x(5), target_y(0)
+    : Node("controls"), target_x(5), target_y(3)
     {
       auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
       // Regular Camera Subscriber
@@ -148,26 +153,28 @@ class MinimalSubscriber : public rclcpp::Node {
       return centers;
     }
      
-     /*
-    void adjust_queue(vPT cntrs)
+     
+    void adjust_queue(cPT cntrs)
     {
       for (int i=0; i<cntrs.size(); i++) {
-        bool valid = true;
-        for (int j=0; j<path.size(); j++) {
-          if (dist_2d(current_x+cntrs[i].first, current_y+cntrs[i].second, path[j].first, path[j].second) <= 0.2) {
+        bool valid = true; std::set<PT>::iterator itr;
+        for (itr = viewed.begin(); itr != viewed.end(); itr++) {
+          if (dist_2d(current_x+std::get<0>(cntrs[i]), current_y+std::get<1>(cntrs[i]), itr->first, itr->second) <= 0.2) {
             valid = false;
           }
         }
         if (valid) {
-          cntrs.push_back(PT(current_x+cntrs[i].first, current_y+cntrs[i].second));
+          path.push(PT(current_x+std::get<0>(cntrs[i])+VX, current_y+std::get<1>(cntrs[i])+VY));
+          viewed.insert(PT(current_x+std::get<0>(cntrs[i])+VX, current_y+std::get<1>(cntrs[i])+VY));
+          RCLCPP_INFO(this->get_logger(), "Inserting new target destination to queue");
         }
       }    
-      if (dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.2) {
+      if (dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.4) {
         path.pop();
       }
       target_x = path.front().first; target_y = path.front().second;
     }
-    */
+    
     
     // CALLBACK FUNCTIONS
    
@@ -184,7 +191,7 @@ class MinimalSubscriber : public rclcpp::Node {
         cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 3, cv::Scalar(171, 130, 232), -1);
       }
       
-      cPT my_centers = find_cylinders(my_points);
+      my_centers = find_cylinders(my_points);
       
       for (int i=0; i<my_centers.size(); i++) {
         double px = std::get<0>(my_centers[i]); double py = std::get<1>(my_centers[i]); double R = std::get<2>(my_centers[i]);
@@ -192,7 +199,7 @@ class MinimalSubscriber : public rclcpp::Node {
         cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
       }
       
-      
+      adjust_queue(my_centers);
       cv::imshow("PCL DISPLAY", drawing);
       cv::waitKey(1);
     }
@@ -262,7 +269,7 @@ class MinimalSubscriber : public rclcpp::Node {
     
     void camera_callback(sensor_msgs::msg::Image::SharedPtr msg)
     {
-    
+      /*
       cv_bridge::CvImagePtr cv_ptr;
       cv_ptr = cv_bridge::toCvCopy(msg,"rgb8");
       
@@ -311,14 +318,16 @@ class MinimalSubscriber : public rclcpp::Node {
       //RCLCPP_INFO(this->get_logger(), "Number of points: %d", (int) net_points.size());
       straight_points = net_points;
       cv::waitKey(1);
-      
+      */
     }
     
     void depth_callback(sensor_msgs::msg::Image::SharedPtr msg)
     { 
+    /*
       cv_bridge::CvImagePtr cv_ptr;
       cv_ptr = cv_bridge::toCvCopy(msg,"32FC1");
       //cv::imshow("Depth", cv_ptr->image);
+      */
     }
     void odom_callback(nav_msgs::msg::Odometry::SharedPtr msg)
     {
@@ -353,20 +362,39 @@ class MinimalSubscriber : public rclcpp::Node {
           traj = atan(dy/dx) * 180/3.1415;
         }
         //RCLCPP_INFO(this->get_logger(), "Trajectory is %f", traj);
-        if (abs(traj-yaw) > 0.5) {
-          twist_msg.angular.z = abs(traj-yaw)/(10*(traj-yaw));
+        
+        
+        double rec_x = cos(yaw/RAD2DEG); double rec_y = sin(yaw/RAD2DEG);
+        bool valid = true;
+	for (int i=0; i<my_centers.size(); i++) {
+          double px = std::get<0>(my_centers[i]); double py = std::get<1>(my_centers[i]); double R = std::get<2>(my_centers[i]);
+          if (dist_2d(px, py, rec_x, rec_y) <= (R+0.7)) {
+            valid = false;
+          }
+        }
+        if (valid) {
+          if (abs(traj-yaw) > 1) {
+            twist_msg.angular.z = abs(traj-yaw)/(7*(traj-yaw));
+          } 
+          else {
+            twist_msg.angular.z = 0;
+          }
         }
         else {
-          twist_msg.angular.z = 0;
-        }
-        if (dw >= 1) {
-          twist_msg.linear.x = 0.2;
-        }
-        else if (dw >= 0.3) {
-          twist_msg.linear.x = 0.10;
-        }
-        else {
-          twist_msg.linear.x = 0;
+          twist_msg.angular.z = 0.1;
+        } 
+
+        twist_msg.linear.x = 0;
+        if (valid) {
+          if (dw >= 1) {
+            twist_msg.linear.x = 0.2;
+          }
+          else if (dw >= 0.3) {
+            twist_msg.linear.x = 0.10;
+          }
+          else {
+            twist_msg.linear.x = 0;
+          }
         }
 	/*
       if (straight_points.size() > 1) {
@@ -398,6 +426,8 @@ class MinimalSubscriber : public rclcpp::Node {
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr ctr_pub_;
     std::vector<int> straight_points;
     std::queue<PT> path;
+    std::set<PT> viewed;
+    cPT my_centers;
     double target_x; double target_y;
     double current_x; double current_y;
 };
