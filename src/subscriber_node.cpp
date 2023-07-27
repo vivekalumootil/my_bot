@@ -8,7 +8,7 @@
 #include <queue>
 #include <set>
 
-/*
+
 #include "cv_bridge/cv_bridge.h"
 #include "rclcpp/rclcpp.hpp"
 #include <opencv2/opencv.hpp>
@@ -17,7 +17,7 @@
 #include <opencv2/core/hal/interface.h>
 #include <image_transport/image_transport.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-*/
+
 
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"

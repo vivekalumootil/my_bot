@@ -18,6 +18,9 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs)
@@ -27,7 +30,7 @@ find_package(tf2)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 add_executable(listener src/subscriber_node.cpp)
-ament_target_dependencies(listener rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs tf2)
+ament_target_dependencies(listener rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs tf2 image_transport OpenCV cv_bridge)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
