@@ -81,6 +81,12 @@ class MinimalSubscriber : public rclcpp::Node {
       return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
     }
     
+    double rotate(double x1, double y1, double theta, double& xr, double& yr)
+    {
+      xr = x1*cos(theta)-y1*sin(theta);
+      yr = x1*sin(theta)+y1*cos(theta);
+    }
+    
     void find_circle(double x1, double y1, double x2, double y2, double x3, double y3, double& cx, double& cy, double& rad)
     {
       double J = (x1-x2)*(y1-y3) - (x1-x3)*(y1-y2);
@@ -122,9 +128,7 @@ class MinimalSubscriber : public rclcpp::Node {
       // Create Mark array
       int* mark = new int[points.size()];
       for (int i=0; i<points.size(); i++) {
-        if (abs(points[i].first ) <= 20 and abs(points[i].second) <= 20) {
-      	  mark[i] = 0;
-      	}
+        mark[i] = 0;
       }
       
       // Detect centers
@@ -132,6 +136,9 @@ class MinimalSubscriber : public rclcpp::Node {
       for (int i=0; i<t-2; i++) {
         double dx; double dy; double r;
         find_circle(points[i].first, points[i].second, points[i+1].first, points[i+1].second, points[i+2].first, points[i+2].second, dx, dy, r);
+        if (r >= 5) {
+          continue;
+        }
         int ctr = 0;
         for (int j=0; j<points.size(); j++) {
           if (mark[j] == 0) {
@@ -146,7 +153,11 @@ class MinimalSubscriber : public rclcpp::Node {
               mark[j] = 1;
             }
           }
-          centers.push_back(CT(dx, dy, r));
+          double xp; double yp;
+          //RCLCPP_INFO(this->get_logger(), "Center is calculated as  %f, %f before rotation", dx, dy);
+          rotate(dx, dy, yw, xp, yp);
+          //RCLCPP_INFO(this->get_logger(), "Center after rotation, before translation is %f, %f", xp, yp);
+          centers.push_back(CT(xp+current_x, yp+current_y, r));
         }
       }
       
@@ -159,20 +170,23 @@ class MinimalSubscriber : public rclcpp::Node {
       for (int i=0; i<cntrs.size(); i++) {
         bool valid = true; std::set<PT>::iterator itr;
         for (itr = viewed.begin(); itr != viewed.end(); itr++) {
-          if (dist_2d(current_x+std::get<0>(cntrs[i]), current_y+std::get<1>(cntrs[i]), itr->first, itr->second) <= 0.2) {
+          if (dist_2d(std::get<0>(cntrs[i]), std::get<1>(cntrs[i]), itr->first, itr->second) <= 0.2) {
             valid = false;
           }
         }
         if (valid) {
-          path.push(PT(current_x+std::get<0>(cntrs[i])+VX, current_y+std::get<1>(cntrs[i])+VY));
-          viewed.insert(PT(current_x+std::get<0>(cntrs[i])+VX, current_y+std::get<1>(cntrs[i])+VY));
-          RCLCPP_INFO(this->get_logger(), "Inserting new target destination to queue");
+          path.push(PT(std::get<0>(cntrs[i])+VX, std::get<1>(cntrs[i])+VY));
+          viewed.insert(PT(std::get<0>(cntrs[i]), std::get<1>(cntrs[i])));
+          RCLCPP_INFO(this->get_logger(), "Inserting new target destination to queue, %f, %f", std::get<0>(cntrs[i])+VX, std::get<1>(cntrs[i])+VY);
         }
       }    
-      if (dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.4) {
+      if (!path.empty() and dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.4)
+      {
         path.pop();
       }
-      target_x = path.front().first; target_y = path.front().second;
+      if (!path.empty()) {
+        target_x = path.front().first; target_y = path.front().second;
+      }
     }
     
     
@@ -180,55 +194,79 @@ class MinimalSubscriber : public rclcpp::Node {
    
     void pcl_callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
+      /*
       //RCLCPP_INFO(this->get_logger(), "Height is %d", msg->height);
       //cv::Mat drawing = cv::Mat::zeros(cv::Size(360, 480),CV_8UC3);
       cv::Mat drawing(360, 480, CV_8UC3, cv::Scalar(228, 229, 247));
       cv::circle(drawing, cv::Point(240, 180), 10, cv::Scalar(87, 93, 161), -1);
       vPT my_points;
       for (sensor_msgs::PointCloud2ConstIterator<float> it(*msg, "x"); it != it.end(); ++it) {
+        if (isinf(it[0]) or isinf(it[1])) {
+          continue;
+        }
         double px = it[0]; double py = it[1];
+        //RCLCPP_INFO(this->get_logger(),"point at %f %f", px, py);
+        rotate(it[0], it[1], yw, px, py);
         my_points.push_back(PT(px, py));
         cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 3, cv::Scalar(171, 130, 232), -1);
       }
       
-      my_centers = find_cylinders(my_points);
+      //my_centers = find_cylinders(my_points);
       
       for (int i=0; i<my_centers.size(); i++) {
-        double px = std::get<0>(my_centers[i]); double py = std::get<1>(my_centers[i]); double R = std::get<2>(my_centers[i]);
-        RCLCPP_INFO(this->get_logger(), "Center is x: %f and y: %f, with radius %f", px, py, R);
+        double px = std::get<0>(my_centers[i])-current_x; double py = std::get<1>(my_centers[i])-current_y; double R = std::get<2>(my_centers[i]);
+        RCLCPP_INFO(this->get_logger(), "Center with translation is is x: %f and y: %f, with radius %f", px+current_x, py+current_y, R);
+        RCLCPP_INFO(this->get_logger(), "Odometry at %.2f, %.2f", current_x, current_y);
         cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
       }
       
+      cv::circle(drawing, cv::Point(50*target_x+240, 50*target_y+180), 4, cv::Scalar(102, 255, 102), -1);
+      cv::circle(drawing, cv::Point(50*rec_x+240, 50*rec_y+180), 10, cv::Scalar(51, 153, 255), -1);
+      
       adjust_queue(my_centers);
-      cv::imshow("PCL DISPLAY", drawing);
-      cv::waitKey(1);
+      //cv::imshow("PCL DISPLAY", drawing);
+      //cv::waitKey(1);
+      */
     }
     
     // Currently not in use
     void laser_callback(sensor_msgs::msg::LaserScan::SharedPtr msg)
     {  
-    /*
-      int space = 0;
+    
       // RCLCPP_INFO(this->get_logger(), "Size is %d", x);
       //double dx; double dy; double r; find_circle(1, 2, 3, 4, 2, 7, dx, dy, r);
       //RCLCPP_INFO(this->get_logger(), "Coordinates/rad are %f, %f, %f", dx, dy, r);
-      std::vector<std::pair<double, double>> scan_map;
+      vPT scan_map;
       double angle = msg->angle_min;
-      cv::Mat drawing = cv::Mat::zeros(cv::Size(360, 480),CV_8UC3);
+      cv::Mat drawing(360, 480, CV_8UC3, cv::Scalar(228, 229, 247));
+      cv::Mat flat(360, 480, CV_8UC3, cv::Scalar(87, 93, 161));
       for (int i=0; i<msg->ranges.size(); i++) {
-        if (isinf(msg->ranges[i])) {
-          //RCLCPP_INFO(this->get_logger(), "Found infinity!");
-          continue;
+        if (!isinf(msg->ranges[i])) {
+          double px = cos(angle) * msg->ranges[i];
+          double py = sin(angle) * msg->ranges[i];
+          //RCLCPP_INFO(this->get_logger(), "Point is %f, %f, at angle %f", px, py, angle);
+          //cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 3, cv::Scalar(0, 0, 255), -1);
+          scan_map.push_back(PT(px, py));
         }
-        double px = cos(angle) * msg->ranges[i];
-        double py = sin(angle) * msg->ranges[i];
-        //RCLCPP_INFO(this->get_logger(), "Point is %f, %f", px, py);
-        cv::circle(drawing, cv::Point(50*px+180, 50*py+240), 5, cv::Scalar(0, 0, 255), -1);
-        scan_map.push_back(std::pair<double, double>(px, py));
         angle += msg->angle_increment;
-        space += 1;
       }
+      //RCLCPP_INFO(this->get_logger(), "Final angle is %f", angle);
+      cv::circle(drawing, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
+      cv::circle(flat, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
+      my_centers = find_cylinders(scan_map);
+      
+      for (int i=0; i<my_centers.size(); i++) {
+        double px = std::get<0>(my_centers[i])-current_x; double py = std::get<1>(my_centers[i])-current_y; double R = std::get<2>(my_centers[i]);
+        RCLCPP_INFO(this->get_logger(), "Center is x: %f and y: %f, with radius %f", px+current_x, py+current_y, R);
+        //RCLCPP_INFO(this->get_logger(), "Odometry at %.2f, %.2f", current_x, current_y);
+        cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
+        cv::circle(flat, cv::Point(50*(px+current_x)+240, 50*(py+current_y)+180), 50*R, cv::Scalar(214, 140, 43), -1);
+      }
+      
+      //cv::circle(drawing, cv::Point(50*target_x+240, 50*target_y+180), 4, cv::Scalar(102, 255, 102), -1);
+      //cv::circle(drawing, cv::Point(50*rec_x+240, 50*rec_y+180), 10, cv::Scalar(51, 153, 255), -1);
       //RCLCPP_INFO(this->get_logger(), "Space is %d", space);
+      /*
       int* mark = new int[space];
       for (int i=0; i<space; i++) {
         mark[i] = 0;
@@ -259,12 +297,13 @@ class MinimalSubscriber : public rclcpp::Node {
             }
           }
         }
+        
       }
-      
+      */
       //RCLCPP_INFO(this->get_logger(), "Number of cylinders found: %d", (int) centers.size());
       cv::imshow("Drawing", drawing);
+      cv::imshow("Stats", flat);
       cv::waitKey(1);
-   */
     }
     
     void camera_callback(sensor_msgs::msg::Image::SharedPtr msg)
@@ -336,7 +375,9 @@ class MinimalSubscriber : public rclcpp::Node {
       double ty = msg->pose.pose.position.y;
       double tz = msg->pose.pose.position.z;
       current_x = tx; current_y = ty;
-      // RCLCPP_INFO(this->get_logger(), "%s at %.2f %.2f", msg->header.frame_id.c_str(), tx, ty);
+      //RCLCPP_INFO(this->get_logger(), "Odom set at x: %f and y: %f", current_x, current_y);
+      //RCLCPP_INFO(this->get_logger(), "%s at %.2f %.2f", msg->header.frame_id.c_str(), tx, ty);
+      //RCLCPP_INFO(this->get_logger(), "tarrget at %.2f %.2f", msg->header.frame_id.c_str(), target_x, target_y);
       double dx = target_x-tx; double dy = target_y-ty; 
       double dw = sqrt(dx*dx+dy*dy);
       dx /= dw; dy /= dw;
@@ -353,10 +394,14 @@ class MinimalSubscriber : public rclcpp::Node {
         double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
         roll *= RAD2DEG; pitch *= RAD2DEG; yaw *= RAD2DEG;
-        //RCLCPP_INFO(get_logger(), "Yaw is %.2f", yaw);
+        yw = yaw/RAD2DEG;
+        //RCLCPP_INFO(get_logger(), "Yaw is %.2f", yaw); yw = yaw/RAD2DEG;
         double traj;
-        if (abs(dx) < 0.02) {
+        if (abs(dx) < 0.2 and dy >= 0) {
           traj = 90;
+        }
+        if (abs(dx) < 0.2 and dy < 0) {
+          traj = -90;
         }
         else {
           traj = atan(dy/dx) * 180/3.1415;
@@ -364,23 +409,25 @@ class MinimalSubscriber : public rclcpp::Node {
         //RCLCPP_INFO(this->get_logger(), "Trajectory is %f", traj);
         
         
-        double rec_x = cos(yaw/RAD2DEG); double rec_y = sin(yaw/RAD2DEG);
+        rec_x = cos(yaw/RAD2DEG); rec_y = sin(yaw/RAD2DEG);
+        /*
         bool valid = true;
 	for (int i=0; i<my_centers.size(); i++) {
-          double px = std::get<0>(my_centers[i]); double py = std::get<1>(my_centers[i]); double R = std::get<2>(my_centers[i]);
-          if (dist_2d(px, py, rec_x, rec_y) <= (R+0.7)) {
+          double px = std::get<0>(my_centers[i])-current_x; double py = std::get<1>(my_centers[i])-current_y; double R = std::get<2>(my_centers[i]);
+          if (dist_2d(px, py, rec_x, rec_y) < (R+1)) {
             valid = false;
           }
         }
         if (valid) {
           if (abs(traj-yaw) > 1) {
-            twist_msg.angular.z = abs(traj-yaw)/(7*(traj-yaw));
+            twist_msg.angular.z = abs(traj-yaw)/(10*(traj-yaw));
           } 
           else {
             twist_msg.angular.z = 0;
           }
         }
         else {
+          RCLCPP_INFO(this->get_logger(), "turning for safety");
           twist_msg.angular.z = 0.1;
         } 
 
@@ -396,6 +443,7 @@ class MinimalSubscriber : public rclcpp::Node {
             twist_msg.linear.x = 0;
           }
         }
+        */
 	/*
       if (straight_points.size() > 1) {
         double mid = (straight_points[0]+straight_points[2])/2;
@@ -415,7 +463,7 @@ class MinimalSubscriber : public rclcpp::Node {
       	 twist_msg.angular.z = 0;     
       }
       */
-        ctr_pub_->publish(twist_msg);
+        //ctr_pub_->publish(twist_msg);
     }
     
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr camera_sub_;
@@ -430,6 +478,7 @@ class MinimalSubscriber : public rclcpp::Node {
     cPT my_centers;
     double target_x; double target_y;
     double current_x; double current_y;
+    double rec_x; double rec_y; double yw;
 };
 
 int main(int argc, char *argv[])
