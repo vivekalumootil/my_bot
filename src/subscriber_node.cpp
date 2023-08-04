@@ -157,7 +157,9 @@ class MinimalSubscriber : public rclcpp::Node {
           //RCLCPP_INFO(this->get_logger(), "Center is calculated as  %f, %f before rotation", dx, dy);
           rotate(dx, dy, yw, xp, yp);
           //RCLCPP_INFO(this->get_logger(), "Center after rotation, before translation is %f, %f", xp, yp);
-          centers.push_back(CT(xp+current_x, yp+current_y, r));
+          if (r <= 0.7) {
+            centers.push_back(CT(xp+current_x, yp+current_y, r));
+          }
         }
       }
       
@@ -174,13 +176,13 @@ class MinimalSubscriber : public rclcpp::Node {
             valid = false;
           }
         }
-        if (valid) {
+        if (valid and abs(std::get<1>(cntrs[i])-current_y) < 1) {
           path.push(PT(std::get<0>(cntrs[i])+VX, std::get<1>(cntrs[i])+VY));
           viewed.insert(PT(std::get<0>(cntrs[i]), std::get<1>(cntrs[i])));
           RCLCPP_INFO(this->get_logger(), "Inserting new target destination to queue, %f, %f", std::get<0>(cntrs[i])+VX, std::get<1>(cntrs[i])+VY);
         }
       }    
-      if (!path.empty() and dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.4)
+      if (!path.empty() and dist_2d(current_x, current_y, path.front().first, path.front().second) <= 0.3)
       {
         path.pop();
       }
@@ -188,7 +190,6 @@ class MinimalSubscriber : public rclcpp::Node {
         target_x = path.front().first; target_y = path.front().second;
       }
     }
-    
     
     // CALLBACK FUNCTIONS
    
@@ -238,8 +239,8 @@ class MinimalSubscriber : public rclcpp::Node {
       //RCLCPP_INFO(this->get_logger(), "Coordinates/rad are %f, %f, %f", dx, dy, r);
       vPT scan_map;
       double angle = msg->angle_min;
-      cv::Mat drawing(360, 480, CV_8UC3, cv::Scalar(228, 229, 247));
-      cv::Mat flat(360, 480, CV_8UC3, cv::Scalar(87, 93, 161));
+      //cv::Mat drawing(360, 480, CV_8UC3, cv::Scalar(228, 229, 247));
+      cv::Mat flat(720, 960, CV_8UC3, cv::Scalar(87, 93, 161));
       for (int i=0; i<msg->ranges.size(); i++) {
         if (!isinf(msg->ranges[i])) {
           double px = cos(angle) * msg->ranges[i];
@@ -250,17 +251,21 @@ class MinimalSubscriber : public rclcpp::Node {
         }
         angle += msg->angle_increment;
       }
+      
       //RCLCPP_INFO(this->get_logger(), "Final angle is %f", angle);
-      cv::circle(drawing, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
-      cv::circle(flat, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
+      //cv::circle(drawing, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
+      //cv::circle(flat, cv::Point(240, 180), 3, cv::Scalar(255, 255, 0), -1);
+      cv::circle(flat, cv::Point(480+50*current_x, 360+50*current_y), 15, cv::Scalar(255, 125, 0), -1);
+      cv::circle(flat, cv::Point(480+50*rec_x, 360+50*rec_y), 10, cv::Scalar(255, 255, 0), -1);
+      cv::circle(flat, cv::Point(480+50*target_x, 360+50*target_y), 10, cv::Scalar(255, 0, 125), -1);
       my_centers = find_cylinders(scan_map);
       
       for (int i=0; i<my_centers.size(); i++) {
         double px = std::get<0>(my_centers[i])-current_x; double py = std::get<1>(my_centers[i])-current_y; double R = std::get<2>(my_centers[i]);
-        RCLCPP_INFO(this->get_logger(), "Center is x: %f and y: %f, with radius %f", px+current_x, py+current_y, R);
+        //RCLCPP_INFO(this->get_logger(), "Center is x: %f and y: %f, with radius %f", px+current_x, py+current_y, R);
         //RCLCPP_INFO(this->get_logger(), "Odometry at %.2f, %.2f", current_x, current_y);
-        cv::circle(drawing, cv::Point(50*px+240, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
-        cv::circle(flat, cv::Point(50*(px+current_x)+240, 50*(py+current_y)+180), 50*R, cv::Scalar(214, 140, 43), -1);
+        //cv::circle(drawing, cv::Point(50*px+480, 50*py+180), 50*R, cv::Scalar(214, 140, 43), -1);
+        cv::circle(flat, cv::Point(50*(px+current_x)+480, 50*(py+current_y)+360), 50*R, cv::Scalar(214, 140, 43), -1);
       }
       
       //cv::circle(drawing, cv::Point(50*target_x+240, 50*target_y+180), 4, cv::Scalar(102, 255, 102), -1);
@@ -301,7 +306,8 @@ class MinimalSubscriber : public rclcpp::Node {
       }
       */
       //RCLCPP_INFO(this->get_logger(), "Number of cylinders found: %d", (int) centers.size());
-      cv::imshow("Drawing", drawing);
+      adjust_queue(my_centers);
+      //cv::imshow("Drawing", drawing);
       cv::imshow("Stats", flat);
       cv::waitKey(1);
     }
@@ -343,7 +349,7 @@ class MinimalSubscriber : public rclcpp::Node {
     	    cv::line(img_gray, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(255, 255, 255), 6, cv::LINE_AA);
     	  if (l[1] < 10) {
     	    net_points.push_back(l[0]);
-    	    net_points.push_back(l[1]);
+    	    net_points.push_back(l[1]b);
     	  }
     	  if (l[3] < 10) {
     	    net_points.push_back(l[2]);
@@ -409,25 +415,25 @@ class MinimalSubscriber : public rclcpp::Node {
         //RCLCPP_INFO(this->get_logger(), "Trajectory is %f", traj);
         
         
-        rec_x = cos(yaw/RAD2DEG); rec_y = sin(yaw/RAD2DEG);
-        /*
+        rec_x = current_x+0.05*cos(yaw/RAD2DEG); rec_y = current_y+0.05*sin(yaw/RAD2DEG);
+        
         bool valid = true;
 	for (int i=0; i<my_centers.size(); i++) {
-          double px = std::get<0>(my_centers[i])-current_x; double py = std::get<1>(my_centers[i])-current_y; double R = std::get<2>(my_centers[i]);
-          if (dist_2d(px, py, rec_x, rec_y) < (R+1)) {
+          double px = std::get<0>(my_centers[i]); double py = std::get<1>(my_centers[i]); double R = std::get<2>(my_centers[i]);
+          if (dist_2d(px, py, rec_x, rec_y) < (R+0.5)) {
             valid = false;
           }
         }
         if (valid) {
           if (abs(traj-yaw) > 1) {
-            twist_msg.angular.z = abs(traj-yaw)/(10*(traj-yaw));
+            twist_msg.angular.z = abs(traj-yaw)/(5*(traj-yaw));
           } 
           else {
             twist_msg.angular.z = 0;
           }
         }
         else {
-          RCLCPP_INFO(this->get_logger(), "turning for safety");
+          //RCLCPP_INFO(this->get_logger(), "turning for safety");
           twist_msg.angular.z = 0.1;
         } 
 
@@ -436,14 +442,14 @@ class MinimalSubscriber : public rclcpp::Node {
           if (dw >= 1) {
             twist_msg.linear.x = 0.2;
           }
-          else if (dw >= 0.3) {
+          else if (dw >= 0.1) {
             twist_msg.linear.x = 0.10;
           }
           else {
             twist_msg.linear.x = 0;
           }
         }
-        */
+        
 	/*
       if (straight_points.size() > 1) {
         double mid = (straight_points[0]+straight_points[2])/2;
@@ -463,7 +469,7 @@ class MinimalSubscriber : public rclcpp::Node {
       	 twist_msg.angular.z = 0;     
       }
       */
-        //ctr_pub_->publish(twist_msg);
+        ctr_pub_->publish(twist_msg);
     }
     
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr camera_sub_;
@@ -473,6 +479,7 @@ class MinimalSubscriber : public rclcpp::Node {
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr ctr_pub_;
     std::vector<int> straight_points;
+    vPT world;
     std::queue<PT> path;
     std::set<PT> viewed;
     cPT my_centers;
